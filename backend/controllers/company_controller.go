@@ -1,81 +1,89 @@
 package controllers
 
 import (
-    "saas-finance-backend/database"
-    "saas-finance-backend/models"
+	"strconv"
 
-    "github.com/gofiber/fiber/v2"
-    "golang.org/x/crypto/bcrypt"
+	"github.com/gofiber/fiber/v2"
+
+	"saas-finance-backend/services"
 )
 
-// ... (Your CreateCompanyUser code remains here) ...
+// 1. GetAllCompanies (ดึงข้อมูลบริษัททั้งหมด)
+func GetAllCompanies(c *fiber.Ctx) error {
+	companies, err := services.GetAllCompanies()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch companies"})
+	}
 
-// 1. Get all employees in the company
-func GetCompanyUsers(c *fiber.Ctx) error {
-    companyID := c.Locals("company_id").(float64) 
-
-    var users []models.User
-    
-    database.DB.Select("id, email, role, created_at").
-        Where("company_id = ?", uint(companyID)).
-        Find(&users)
-
-    return c.Status(200).JSON(fiber.Map{
-        "users": users,
-    })
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message":   "Companies retrieved successfully",
+		"companies": companies,
+	})
 }
 
-// 2. Update employee data (Role, Password)
-func UpdateCompanyUser(c *fiber.Ctx) error {
-    companyID := c.Locals("company_id").(float64)
-    userID := c.Params("id") 
+// 2. GetCompany (ดึงข้อมูลเฉพาะบริษัท)
+func GetCompany(c *fiber.Ctx) error {
+	companyIDStr := c.Params("id")
+	companyID, err := strconv.ParseUint(companyIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid company ID"})
+	}
 
-    var updateData struct {
-        Role     string `json:"role"`
-        Password string `json:"password"`
-    }
+	// ดึง ID และ Role ของผู้ใช้จาก Context (Token)
+	userIDFloat, _ := c.Locals("user_id").(float64)
+	userID := uint(userIDFloat)
+	role := c.Locals("role").(string)
 
-    if err := c.BodyParser(&updateData); err != nil {
-        return c.Status(400).JSON(fiber.Map{"message": "Invalid request data"})
-    }
+	company, err := services.GetCompanyByID(uint(companyID), userID, role)
+	if err != nil {
+		switch err.Error() {
+		case "company_not_found":
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Company not found"})
+		case "unauthorized_action":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You don't have permission to view this company"})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch company"})
+		}
+	}
 
-    var user models.User
-    
-    if err := database.DB.Where("id = ? AND company_id = ?", userID, uint(companyID)).First(&user).Error; err != nil {
-        return c.Status(404).JSON(fiber.Map{"message": "User not found or unauthorized access"})
-    }
-
-    if updateData.Role != "" {
-        user.Role = updateData.Role
-    }
-
-    if updateData.Password != "" {
-        hash, err := bcrypt.GenerateFromPassword([]byte(updateData.Password), 10)
-        if err != nil {
-            return c.Status(500).JSON(fiber.Map{"message": "Failed to hash password"})
-        }
-        user.PasswordHash = string(hash)
-    }
-
-    database.DB.Save(&user)
-
-    return c.Status(200).JSON(fiber.Map{
-        "message": "User updated successfully",
-    })
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Company retrieved successfully",
+		"company": company,
+	})
 }
 
-// 3. Delete employee
-func DeleteCompanyUser(c *fiber.Ctx) error {
-    companyID := c.Locals("company_id").(float64)
-    userID := c.Params("id")
+// 3. UpdateCompany (แก้ไขข้อมูลบริษัท)
+func UpdateCompany(c *fiber.Ctx) error {
+	companyIDStr := c.Params("id")
+	companyID, err := strconv.ParseUint(companyIDStr, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid company ID"})
+	}
 
-    result := database.DB.Where("id = ? AND company_id = ?", userID, uint(companyID)).Delete(&models.User{})
-    
-    if result.RowsAffected == 0 {
-        return c.Status(404).JSON(fiber.Map{"message": "User not found or unauthorized to delete"})
-    }
+	req := new(services.CompanyUpdateInput)
+	if err := c.BodyParser(req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format"})
+	}
 
-    return c.Status(200).JSON(fiber.Map{
-        "message": "User deleted successfully",
-    })
+	// ดึง ID และ Role ของผู้ใช้จาก Context (Token)
+	userIDFloat, _ := c.Locals("user_id").(float64)
+	userID := uint(userIDFloat)
+	role := c.Locals("role").(string)
+
+	company, err := services.UpdateCompany(uint(companyID), userID, role, *req)
+	if err != nil {
+		switch err.Error() {
+		case "company_not_found":
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Company not found"})
+		case "unauthorized_action":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You don't have permission to edit this company"})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update company"})
+		}
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Company updated successfully",
+		"company": company,
+	})
 }

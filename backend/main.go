@@ -6,44 +6,45 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/joho/godotenv"
-	
+	"github.com/gofiber/fiber/v2/middleware/logger"
+
 	"saas-finance-backend/database"
-	"saas-finance-backend/routes" // เพิ่มการนำเข้า (import) ไฟล์ routes
+	"saas-finance-backend/routes"
 )
 
 func main() {
-	// โหลดไฟล์ .env
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	// เชื่อมต่อ Database
+	// 1. เชื่อมต่อฐานข้อมูลและอัปเดตตาราง (AutoMigrate)
 	database.ConnectDB()
 
-	database.SeedSuperadmin()
+	// 2. เรียกใช้ Seeder เพื่อสร้างข้อมูลตั้งต้น (เช่น Super Admin, แพ็คเกจ)
+	database.Seed(database.DB)
 
+	// 3. สร้างแอปพลิเคชัน Fiber
 	app := fiber.New()
 
-	// เปิด CORS ให้ Frontend (Next.js) เรียกใช้งาน API ได้
+	// 4. ติดตั้ง Middleware ที่สำคัญ
+	// - Logger Middleware: ช่วยแสดง Log ใน Console เมื่อมีคนยิง API เข้ามา
+	app.Use(logger.New())
+	
+	// - CORS Middleware: อนุญาตให้ Frontend ข้ามโดเมนมาเรียก API เราได้
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:3000", // ระบุ URL ของ Next.js
-		AllowCredentials: true,
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowOrigins: "*", // ตอนขึ้น Production จริง ควรเปลี่ยนเป็นโดเมนของ Frontend
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
 	}))
 
-	// ทดสอบ Route พื้นฐาน
-	app.Get("/api/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"message": "API is running successfully",
-		})
-	})
+	// 5. ติดตั้ง Routes ที่เราสร้างไว้
+	routes.SetupRoutes(app)
 
-	// เรียกใช้งาน Routes ทั้งหมดที่เราสร้างไว้ (เช่น /api/auth/login)
-	routes.Setup(app)
-
+	// 6. กำหนดพอร์ตจากไฟล์ .env
 	port := os.Getenv("PORT")
-	log.Printf("Server is running on port %s", port)
-	app.Listen(":" + port)
+	if port == "" {
+		port = "8000" // ตั้งค่าเริ่มต้นหากหา .env ไม่เจอ
+	}
+
+	// 7. เริ่มต้นเปิดรันเซิร์ฟเวอร์
+	log.Printf("🚀 Server is running on port %s", port)
+	err := app.Listen(":" + port)
+	if err != nil {
+		log.Fatal("❌ Server failed to start:", err)
+	}
 }

@@ -1,54 +1,61 @@
 package routes
 
 import (
-    "saas-finance-backend/controllers"
-    "saas-finance-backend/middleware"
+	"github.com/gofiber/fiber/v2"
 
-    "github.com/gofiber/fiber/v2"
+	"saas-finance-backend/controllers"
+	"saas-finance-backend/middlewares"
 )
 
-func Setup(app *fiber.App) {
-    api := app.Group("/api")
+func SetupRoutes(app *fiber.App) {
+	api := app.Group("/api")
 
-    // ---------------------------------------------------------
-    // 1. เส้นทางสาธารณะ (Public Routes - ไม่ต้อง Login)
-    // ---------------------------------------------------------
-    auth := api.Group("/auth")
-    auth.Post("/register-admin", controllers.RegisterCompanyAdmin)
-    auth.Post("/login", controllers.Login)
+	// กลุ่ม Authentication (ไม่ต้องมี Token)
+	authGroup := api.Group("/auth")
+	authGroup.Post("/register", controllers.Register)
+	authGroup.Post("/login", controllers.Login)
 
-    // ---------------------------------------------------------
-    // 2. เส้นทางที่ต้อง Login ก่อนเข้าใช้งาน (Protected Routes)
-    // ---------------------------------------------------------
-    // ใส่ middleware.RequireAuth ไว้ตรงนี้ ทำให้ทุกเส้นทางภายใต้ตัวแปร protected ต้องมี Token
-    protected := api.Group("/", middleware.RequireAuth)
+	// กลุ่ม Users (ต้องมี Token)
+	userGroup := api.Group("/users", middlewares.Protected())
+	userGroup.Post("/superadmin", middlewares.RequireRoles("superadmin"), controllers.CreateSuperAdmin)
+	userGroup.Post("/assistant", middlewares.RequireRoles("superadmin", "admin"), controllers.CreateAssistant)
 
-    // --- โซนของ Superadmin เท่านั้น ---
-    superadmin := protected.Group("/superadmin", middleware.RequireRoles("superadmin"))
-    superadmin.Get("/dashboard", func(c *fiber.Ctx) error {
-        return c.JSON(fiber.Map{"message": "Welcome Boss! This is Superadmin Dashboard."})
-    })
+	// กลุ่ม Packages (ต้องมี Token)
+	packageGroup := api.Group("/packages", middlewares.Protected())
 
-    // --- โซนของ Admin บริษัท ---
-    company := protected.Group("/company", middleware.RequireRoles("company_admin"))
-    company.Get("/dashboard", func(c *fiber.Ctx) error {
-        // ดึง company_id จาก Token มาใช้ประโยชน์ได้เลย
-        companyID := c.Locals("company_id")
-        return c.JSON(fiber.Map{
-            "message": "Welcome Company Admin",
-            "company_id": companyID,
-        })
-    })
+	// API สำหรับ Admin: ซื้อแพ็คเกจ
+	packageGroup.Post("/subscribe", middlewares.RequireRoles("admin"), controllers.SubscribePackage)
 
-    // 👇 เพิ่ม API จัดการพนักงาน 3 ตัวใหม่ ตรงนี้ได้เลยครับ 👇
-    company.Post("/users", controllers.CreateCompanyUser)       // สร้างพนักงาน (ของเดิม)
-    company.Get("/users", controllers.GetCompanyUsers)          // ดึงรายชื่อพนักงานทั้งหมด (ใหม่)
-    company.Put("/users/:id", controllers.UpdateCompanyUser)    // แก้ไขข้อมูลพนักงาน (ใหม่)
-    company.Delete("/users/:id", controllers.DeleteCompanyUser) // ลบพนักงาน (ใหม่)
+	// API สำหรับ Superadmin: ยกเลิกแพ็คเกจของลูกค้า (อ้างอิงจาก ID ของ Transaction)
+	packageGroup.Put("/transactions/:id/cancel", middlewares.RequireRoles("superadmin"), controllers.CancelPackage)
 
-    // --- โซนการเงิน (เข้าได้ทั้ง Admin, พนักงาน, นักบัญชี) ---
-    finance := protected.Group("/finance", middleware.RequireRoles("company_admin", "accountant", "employee"))
-    finance.Get("/records", func(c *fiber.Ctx) error {
-        return c.JSON(fiber.Map{"message": "Here are the finance records."})
-    })
+	// กลุ่ม Transactions (ต้องล็อกอิน -> ต้องเป็น admin/assistant -> ต้องมีแพ็คเกจที่ยังไม่หมดอายุ)
+	transactionGroup := api.Group("/transactions",
+		middlewares.Protected(),
+		middlewares.RequireRoles("admin", "assistant"),
+		middlewares.RequireActivePackage(), // 📌 ใส่ยามตรวจสอบแพ็คเกจเพิ่มตรงนี้
+	)
+
+	transactionGroup.Post("/", controllers.CreateTransaction)
+	transactionGroup.Get("/", controllers.GetTransactions)
+	transactionGroup.Get("/:id", controllers.GetTransaction)
+	transactionGroup.Put("/:id", controllers.UpdateTransaction)
+	transactionGroup.Delete("/:id", controllers.DeleteTransaction)
+
+	// กลุ่ม Companies (ต้องมี Token)
+	companyGroup := api.Group("/companies", middlewares.Protected())
+
+	// Superadmin เท่านั้นที่ดูทั้งหมดได้
+	companyGroup.Get("/", middlewares.RequireRoles("superadmin"), controllers.GetAllCompanies)
+
+	// Superadmin หรือ Admin สามารถดูและแก้ไขได้ (แต่ Admin จะถูกกรองใน Service ว่าต้องเป็นบริษัทตัวเอง)
+	companyGroup.Get("/:id", middlewares.RequireRoles("superadmin", "admin"), controllers.GetCompany)
+	companyGroup.Put("/:id", middlewares.RequireRoles("superadmin", "admin"), controllers.UpdateCompany)
+
+	// Category Group (เฉพาะ Superadmin เท่านั้น)
+	categoryGroup := api.Group("/categories", middlewares.Protected(), middlewares.RequireRoles("superadmin"))
+
+	categoryGroup.Get("/", controllers.GetAllCategories)     // อ่านทั้งหมด
+	categoryGroup.Post("/", controllers.CreateCategory)      // เพิ่มหมวดหมู่
+	categoryGroup.Delete("/:id", controllers.DeleteCategory) // ลบหมวดหมู่
 }
