@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff } from "lucide-react";
+// ❌ เอาการ import Sidebar ออกไป
+import { Eye, EyeOff, ShieldAlert, ArrowLeft } from "lucide-react";
 
-export default function RegisterPage() {
+export default function CreateSuperadminPage() {
   const router = useRouter();
 
-  // State สำหรับเก็บข้อมูลฟอร์ม (เพิ่ม confirm_password)
+  // State สำหรับเก็บข้อมูลฟอร์ม
   const [formData, setFormData] = useState({
-    company_name: "",
     email: "",
     password: "",
     confirm_password: "",
@@ -17,28 +17,26 @@ export default function RegisterPage() {
 
   // State สำหรับจัดการ UI
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false); // สำหรับช่องยืนยันรหัสผ่าน
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
-  // จัดการเมื่อพิมพ์ข้อมูล
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
-    // ล้าง Error เมื่อผู้ใช้เริ่มพิมพ์ใหม่
     if (error) setError("");
   };
 
-  // จัดการเมื่อกดยืนยันฟอร์ม
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
+    setSuccess(false);
 
-    // 1. ตรวจสอบว่ารหัสผ่านตรงกันหรือไม่
+    // ตรวจสอบรหัสผ่านให้ตรงกัน
     if (formData.password !== formData.confirm_password) {
       setError("รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน");
       setIsLoading(false);
@@ -46,31 +44,33 @@ export default function RegisterPage() {
     }
 
     try {
-      // 2. คัดแยกเฉพาะข้อมูลที่ Backend ต้องการ (ไม่ส่ง confirm_password ไป)
-      const payload = {
-        company_name: formData.company_name,
-        email: formData.email,
-        password: formData.password,
-      };
+      // ดึง Token ของ Superadmin ปัจจุบันเพื่อใช้ยืนยันสิทธิ์
+      const token = localStorage.getItem("token");
 
-      const response = await fetch("http://localhost:8000/api/auth/register", {
+      const response = await fetch("http://localhost:8000/api/users/superadmin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          role: "superadmin"
+        }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Something went wrong");
+        throw new Error(data.error || "Failed to create superadmin");
       }
 
-      // สมัครสำเร็จ
       setSuccess(true);
+      setFormData({ email: "", password: "", confirm_password: "" }); // ล้างฟอร์ม
+      
       setTimeout(() => {
-        router.push("/login"); // พากลับไปหน้า Login หลังสมัครเสร็จ
+        router.push("/superadmin/dashboard");
       }, 2000);
 
     } catch (err: any) {
@@ -80,57 +80,59 @@ export default function RegisterPage() {
     }
   };
 
+  // 📌 คืนค่าเฉพาะเนื้อหาล้วนๆ (ใช้ Fragment <> คลุม)
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+    <>
+      {/* ปุ่มย้อนกลับ */}
+      <button 
+        onClick={() => router.back()}
+        className="flex items-center gap-2 text-sm text-gray-500 hover:text-black transition-colors mb-6 w-fit"
+      >
+        <ArrowLeft size={16} />
+        <span>Back</span>
+      </button>
+
+      {/* ห่อเนื้อหาด้วย max-w-xl เพื่อไม่ให้ฟอร์มกว้างจนเกินไป */}
+      <div className="max-w-xl">
         
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-            Create your workspace
-          </h1>
-          <p className="text-sm text-gray-500 mt-2">
-            Register your company to get started.
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold tracking-tight">Add New Superadmin</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Create a new top-level administrator for the platform.
           </p>
         </div>
 
-        {/* Success Message */}
+        {/* Warning Banner */}
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex gap-3 items-start">
+          <ShieldAlert className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
+          <div>
+            <h3 className="text-sm font-semibold text-amber-800">High Privilege Level</h3>
+            <p className="text-sm text-amber-700 mt-1">
+              Users with the Superadmin role will have full access to all system settings, companies, and billing data. Please assign this role carefully.
+            </p>
+          </div>
+        </div>
+
+        {/* Alert Messages */}
         {success && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md text-sm text-center">
-            Registration successful! Redirecting to login...
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md text-sm">
+            Superadmin created successfully! Redirecting...
           </div>
         )}
-
-        {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 rounded-md text-sm text-center">
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 rounded-md text-sm">
             {error}
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-5">
           
-          {/* Company Name Input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Company Name
-            </label>
-            <input
-              type="text"
-              name="company_name"
-              value={formData.company_name}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-2 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all"
-              placeholder="e.g. Acme Corp"
-            />
-          </div>
-
           {/* Email Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Work Email
+              Email Address
             </label>
             <input
               type="email"
@@ -139,7 +141,7 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               className="w-full px-4 py-2 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all"
-              placeholder="name@company.com"
+              placeholder="admin@platform.com"
             />
           </div>
 
@@ -155,7 +157,7 @@ export default function RegisterPage() {
                 value={formData.password}
                 onChange={handleChange}
                 required
-                minLength={6}
+                minLength={8}
                 className="w-full px-4 py-2 pr-10 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all"
                 placeholder="••••••••"
               />
@@ -181,7 +183,7 @@ export default function RegisterPage() {
                 value={formData.confirm_password}
                 onChange={handleChange}
                 required
-                minLength={6}
+                minLength={8}
                 className="w-full px-4 py-2 pr-10 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all"
                 placeholder="••••••••"
               />
@@ -196,24 +198,17 @@ export default function RegisterPage() {
           </div>
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full mt-2 bg-black text-white font-medium py-2.5 rounded-lg hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {isLoading ? "Creating account..." : "Register"}
-          </button>
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-black text-white font-medium py-2.5 rounded-lg hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isLoading ? "Creating..." : "Create Superadmin"}
+            </button>
+          </div>
         </form>
-
-        {/* Footer Link */}
-        <p className="text-center text-sm text-gray-600 mt-8">
-          Already have an account?{" "}
-          <a href="/login" className="text-black font-medium hover:underline">
-            Sign in
-          </a>
-        </p>
-
       </div>
-    </div>
+    </>
   );
 }

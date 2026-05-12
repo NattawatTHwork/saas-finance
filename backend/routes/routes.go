@@ -18,7 +18,11 @@ func SetupRoutes(app *fiber.App) {
 	// กลุ่ม Users (ต้องมี Token)
 	userGroup := api.Group("/users", middlewares.Protected())
 	userGroup.Post("/superadmin", middlewares.RequireRoles("superadmin"), controllers.CreateSuperAdmin)
-	userGroup.Post("/assistant", middlewares.RequireRoles("superadmin", "admin"), controllers.CreateAssistant)
+	userGroup.Post("/assistant", middlewares.RequireRoles("superadmin"), controllers.CreateAssistant)
+	userGroup.Post("/assistantbyadmin", middlewares.RequireRoles("admin"), controllers.CreateAssistantByAdmin)
+    userGroup.Put("/password", controllers.ChangePassword)
+    userGroup.Put("/:id/superadmin", middlewares.RequireRoles("superadmin"), controllers.UpdateUserBySuperAdmin)
+    userGroup.Put("/:id/assistant", middlewares.RequireRoles("admin"), controllers.UpdateAssistantByAdmin)
 
 	// กลุ่ม Packages (ต้องมี Token)
 	packageGroup := api.Group("/packages", middlewares.Protected())

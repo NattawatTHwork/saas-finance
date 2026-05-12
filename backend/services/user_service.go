@@ -2,7 +2,6 @@ package services
 
 import (
 	"errors"
-
 	"golang.org/x/crypto/bcrypt"
 
 	"saas-finance-backend/database"
@@ -68,7 +67,7 @@ func CreateAssistant(input CreateAssistantInput, creatorRole string, creatorID u
 		if err := database.DB.First(&company, input.CompanyID).Error; err != nil {
 			return nil, errors.New("company_not_found")
 		}
-		
+
 		managerID = company.UserID // เอา UserID ของเจ้าของบริษัทมาเป็น ManagerID
 	} else if creatorRole == "admin" {
 		// ถ้า admin สร้างเอง เอา ID ของตัวเองเป็น ManagerID ได้เลย
@@ -96,4 +95,127 @@ func CreateAssistant(input CreateAssistantInput, creatorRole string, creatorID u
 	}
 
 	return &newUser, nil
+}
+
+// CreateAssistantByAdmin - Service สำหรับสร้าง Assistant โดยหาบริษัทจากตาราง Company ด้วย adminID
+func CreateAssistantByAdmin(email, password string, adminID uint) (*models.User, error) {
+	db := database.DB
+
+	// 1. เช็คว่า Email ซ้ำไหม
+	var existingUser models.User
+	if err := db.Where("email = ?", email).First(&existingUser).Error; err == nil {
+		return nil, errors.New("email_exists")
+	}
+
+	// 2. เอา adminID (user_id จาก token) ไปค้นหาในตาราง Company
+	var company models.Company
+	if err := db.Where("user_id = ?", adminID).First(&company).Error; err != nil {
+		// 📌 ถ้า Error แสดงว่าหาไม่เจอ = คนนี้ไม่ใช่ Admin (เพราะถ้าเป็น Admin ต้องมีบริษัทเสมอ)
+		return nil, errors.New("not_an_admin")
+	}
+
+	// 3. เข้ารหัสรหัสผ่าน
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. สร้างข้อมูล Assistant
+	assistant := models.User{
+		Email:        email,
+		PasswordHash: string(hashedPassword), // 📌 ใช้ PasswordHash ให้ตรงกับ Model ล่าสุด
+		Role:         "assistant",
+		ManagerID:    &adminID, // 📌 เอา adminID มาเป็น Manager ให้ Assistant คนนี้
+	}
+
+	// 5. บันทึกลง Database
+	if err := db.Create(&assistant).Error; err != nil {
+		return nil, err
+	}
+
+	return &assistant, nil
+}
+
+// UpdateUserBySuperAdmin - Service สำหรับ Superadmin แก้ไข Email และ Status ของใครก็ได้
+func UpdateUserBySuperAdmin(userID uint, email, status string) (*models.User, error) {
+	var user models.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		return nil, errors.New("user_not_found")
+	}
+
+	// เช็คว่าถ้ามีการเปลี่ยน Email จะซ้ำกับคนอื่นไหม
+	if email != "" && email != user.Email {
+		var count int64
+		database.DB.Model(&models.User{}).Where("email = ?", email).Count(&count)
+		if count > 0 {
+			return nil, errors.New("email_exists")
+		}
+		user.Email = email
+	}
+
+	if status != "" {
+		user.Status = status
+	}
+
+	if err := database.DB.Save(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+// UpdateAssistantByAdmin - Service สำหรับ Admin แก้ไข Assistant ของตัวเอง
+func UpdateAssistantByAdmin(adminID, assistantID uint, email, status string) (*models.User, error) {
+	var assistant models.User
+	if err := database.DB.First(&assistant, assistantID).Error; err != nil {
+		return nil, errors.New("user_not_found")
+	}
+
+	// ตรวจสอบสิทธิ์: Assistant คนนี้ต้องมี ManagerID ตรงกับ adminID
+	if assistant.ManagerID == nil || *assistant.ManagerID != adminID {
+		return nil, errors.New("unauthorized_manager")
+	}
+
+	// เช็ค Email ซ้ำ
+	if email != "" && email != assistant.Email {
+		var count int64
+		database.DB.Model(&models.User{}).Where("email = ?", email).Count(&count)
+		if count > 0 {
+			return nil, errors.New("email_exists")
+		}
+		assistant.Email = email
+	}
+
+	if status != "" {
+		assistant.Status = status
+	}
+
+	if err := database.DB.Save(&assistant).Error; err != nil {
+		return nil, err
+	}
+
+	return &assistant, nil
+}
+
+// ChangePassword - Service สำหรับเปลี่ยนรหัสผ่านของตนเอง
+func ChangePassword(userID uint, oldPassword, newPassword string) error {
+	var user models.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		return errors.New("user_not_found")
+	}
+
+	// 1. ตรวจสอบรหัสผ่านเดิม
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
+		return errors.New("invalid_old_password")
+	}
+
+	// 2. เข้ารหัสรหัสผ่านใหม่
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 10)
+	if err != nil {
+		return err
+	}
+
+	// 3. บันทึกรหัสผ่านใหม่
+	user.PasswordHash = string(hashedPassword)
+	return database.DB.Save(&user).Error
 }
