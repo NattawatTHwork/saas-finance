@@ -8,6 +8,30 @@ import (
 	"saas-finance-backend/services"
 )
 
+// 🌟 GetMySubscriptionStatus (เช็คสถานะแพ็คเกจของบริษัทตัวเอง)
+func GetMySubscriptionStatus(c *fiber.Ctx) error {
+	// ดึง ID และ Role จาก Token
+	userIDFloat, ok := c.Locals("user_id").(float64)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	userID := uint(userIDFloat)
+	role := c.Locals("role").(string)
+
+	isActive, err := services.CheckActiveSubscription(userID, role)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":     "Failed to check subscription status",
+			"is_active": false,
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message":   "Subscription status retrieved",
+		"is_active": isActive,
+	})
+}
+
 // 1. GetAllCompanies (ดึงข้อมูลบริษัททั้งหมด)
 func GetAllCompanies(c *fiber.Ctx) error {
 	companies, err := services.GetAllCompanies()
@@ -85,5 +109,18 @@ func UpdateCompany(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Company updated successfully",
 		"company": company,
+	})
+}
+
+// GetCompaniesSubscriptionReport Controller
+func GetCompaniesSubscriptionReport(c *fiber.Ctx) error {
+	report, err := services.GetCompaniesSubscriptionReport()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message":   "Subscription report fetched successfully",
+		"companies": report,
 	})
 }

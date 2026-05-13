@@ -15,7 +15,17 @@ func SubscribePackage(userID uint, packageID uint) (*models.PackageTransaction, 
 		return nil, errors.New("package_not_found")
 	}
 
-	// 1. ตรวจสอบการสมัครซ้ำซ้อนสำหรับ Trial (7_days)
+	// 🌟 1. ป้องกันการซื้อซ้ำ ถ้ายังมีแพ็คเกจที่สถานะ Active และยังไม่หมดอายุ
+	var activeCount int64
+	database.DB.Model(&models.PackageTransaction{}).
+		Where("user_id = ? AND status = ? AND expired_at > ?", userID, "active", time.Now()).
+		Count(&activeCount)
+
+	if activeCount > 0 {
+		return nil, errors.New("you_already_have_an_active_subscription")
+	}
+
+	// 2. ตรวจสอบการสมัครซ้ำซ้อนสำหรับ Trial (7_days)
 	if pkg.BillingCycle == "7_days" {
 		var trialCount int64
 		// ค้นหาว่า User นี้เคยสมัครแพ็คเกจที่มี BillingCycle เป็น "7_days" ไปแล้วหรือยัง
@@ -30,7 +40,7 @@ func SubscribePackage(userID uint, packageID uint) (*models.PackageTransaction, 
 		}
 	}
 
-	// 2. คำนวณวันหมดอายุ (ExpiredAt) ตาม BillingCycle
+	// 3. คำนวณวันหมดอายุ (ExpiredAt) ตาม BillingCycle
 	now := time.Now()
 	var expiredAt time.Time
 
@@ -45,7 +55,7 @@ func SubscribePackage(userID uint, packageID uint) (*models.PackageTransaction, 
 		expiredAt = now.AddDate(0, 1, 0) // ค่าเริ่มต้น
 	}
 
-	// 3. สร้าง Transaction และบันทึกวันหมดอายุ
+	// 4. สร้าง Transaction และบันทึกวันหมดอายุ
 	transaction := models.PackageTransaction{
 		PackageID:       pkg.ID,
 		UserID:          userID,
@@ -85,4 +95,60 @@ func CancelPackage(transactionID uint) (*models.PackageTransaction, error) {
 	}
 
 	return &transaction, nil
+}
+
+// GetAllPackages - Service สำหรับดึงรายการแพ็คเกจทั้งหมดที่เปิดใช้งานอยู่
+func GetAllPackages() ([]models.Package, error) {
+	var packages []models.Package
+	// ดึงเฉพาะแพ็คเกจที่มี IsActive = true
+	if err := database.DB.Where("is_active = ?", true).Find(&packages).Error; err != nil {
+		return nil, err
+	}
+	return packages, nil
+}
+
+// GetAllPackagesAdmin - ดึงทุกแพ็คเกจ (รวม Inactive) สำหรับ Superadmin
+func GetAllPackagesAdmin() ([]models.Package, error) {
+	var packages []models.Package
+	if err := database.DB.Find(&packages).Error; err != nil {
+		return nil, err
+	}
+	return packages, nil
+}
+
+// CreatePackage - สร้างแพ็คเกจใหม่
+func CreatePackage(pkg models.Package) (*models.Package, error) {
+	if err := database.DB.Create(&pkg).Error; err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+// UpdatePackage - แก้ไขข้อมูลแพ็คเกจ
+func UpdatePackage(id uint, input models.Package) (*models.Package, error) {
+	var pkg models.Package
+	if err := database.DB.First(&pkg, id).Error; err != nil {
+		return nil, errors.New("package_not_found")
+	}
+
+	// อัปเดตฟิลด์ต่างๆ
+	pkg.Name = input.Name
+	pkg.Price = input.Price
+	pkg.BillingCycle = input.BillingCycle
+	pkg.Description = input.Description
+	pkg.IsActive = input.IsActive
+
+	if err := database.DB.Save(&pkg).Error; err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+// DeletePackage - ลบแพ็คเกจ (Soft Delete)
+func DeletePackage(id uint) error {
+	var pkg models.Package
+	if err := database.DB.First(&pkg, id).Error; err != nil {
+		return errors.New("package_not_found")
+	}
+	return database.DB.Delete(&pkg).Error
 }

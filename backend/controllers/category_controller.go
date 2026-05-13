@@ -2,7 +2,9 @@ package controllers
 
 import (
 	"strconv"
+
 	"github.com/gofiber/fiber/v2"
+
 	"saas-finance-backend/services"
 )
 
@@ -35,8 +37,17 @@ func CreateCategory(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Name and type are required"})
 	}
 
+	// 🌟 1. เพิ่มการ Validate Type ให้รับแค่ income หรือ expense
+	if req.Type != "income" && req.Type != "expense" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Type must be 'income' or 'expense'"})
+	}
+
 	category, err := services.CreateCategory(req.Name, req.Type)
 	if err != nil {
+		// 🌟 ดักจับ Error กรณีชื่อหมวดหมู่ซ้ำ
+		if err.Error() == "category_exists" {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Category with this name and type already exists"})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create category"})
 	}
 

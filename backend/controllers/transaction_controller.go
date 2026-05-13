@@ -8,25 +8,32 @@ import (
 	"saas-finance-backend/services"
 )
 
-// 1. Create Transaction (เพิ่ม)
+// 1. Create Transaction (เพิ่มข้อมูล)
 func CreateTransaction(c *fiber.Ctx) error {
 	req := new(services.TransactionInput)
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format"})
 	}
 
-	// ตรวจสอบข้อมูลจำเป็น
-	if req.CompanyID == 0 || req.CategoryID == 0 || req.Amount <= 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "company_id, category_id, and amount are required"})
+	if req.CategoryID == 0 || req.Amount <= 0 || req.Type == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "type, category_id and amount are required"})
 	}
 
-	// ดึง ID ของคนที่กำลังทำรายการ
+	// 🌟 ดึง ID ของคนที่ล็อกอินอยู่จาก Token
 	userIDFloat, _ := c.Locals("user_id").(float64)
 	userID := uint(userIDFloat)
 
+	// เรียก Service และส่ง userID ไปให้ Service จัดการหา Company อัตโนมัติ
 	transaction, err := services.CreateTransaction(userID, *req)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create transaction"})
+		switch err.Error() {
+		case "user_not_found":
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "User not found"})
+		case "no_company_assigned":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You do not belong to any company"})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create transaction"})
+		}
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -35,17 +42,14 @@ func CreateTransaction(c *fiber.Ctx) error {
 	})
 }
 
-// 2. Get All Transactions (อ่านทั้งหมด)
+// 2. Get All Transactions (อ่านทั้งหมดของบริษัทตัวเอง)
 func GetTransactions(c *fiber.Ctx) error {
-	// รับ company_id จาก Query parameter (เช่น /api/transactions?company_id=1)
-	companyIDStr := c.Query("company_id")
-	if companyIDStr == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "company_id query parameter is required"})
-	}
+	// 🌟 ไม่รับ ?company_id จาก Frontend แล้ว เพื่อความปลอดภัย!
+	// ดึง userID จาก Token แทน
+	userIDFloat, _ := c.Locals("user_id").(float64)
+	userID := uint(userIDFloat)
 
-	companyID, _ := strconv.ParseUint(companyIDStr, 10, 32)
-
-	transactions, err := services.GetTransactions(uint(companyID))
+	transactions, err := services.GetTransactions(userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch transactions"})
 	}

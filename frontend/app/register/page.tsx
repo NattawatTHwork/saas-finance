@@ -7,7 +7,7 @@ import { Eye, EyeOff } from "lucide-react";
 export default function RegisterPage() {
   const router = useRouter();
 
-  // State สำหรับเก็บข้อมูลฟอร์ม (เพิ่ม confirm_password)
+  // State สำหรับเก็บข้อมูลฟอร์ม
   const [formData, setFormData] = useState({
     company_name: "",
     email: "",
@@ -17,7 +17,7 @@ export default function RegisterPage() {
 
   // State สำหรับจัดการ UI
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false); // สำหรับช่องยืนยันรหัสผ่าน
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -53,7 +53,9 @@ export default function RegisterPage() {
         password: formData.password,
       };
 
-      const response = await fetch("http://localhost:8000/api/auth/register", {
+      // 🌟 เรียกใช้ API URL จาก .env.local
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${baseUrl}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -64,7 +66,7 @@ export default function RegisterPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Something went wrong");
+        throw new Error(data.error || "เกิดข้อผิดพลาดบางอย่าง");
       }
 
       // สมัครสำเร็จ
@@ -87,17 +89,17 @@ export default function RegisterPage() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-            Create your workspace
+            เริ่มต้นสร้างพื้นที่ทำงานของคุณ
           </h1>
           <p className="text-sm text-gray-500 mt-2">
-            Register your company to get started.
+            ลงทะเบียนบริษัทของคุณเพื่อเริ่มต้นใช้งาน
           </p>
         </div>
 
         {/* Success Message */}
         {success && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md text-sm text-center">
-            Registration successful! Redirecting to login...
+            ลงทะเบียนสำเร็จ! กำลังพากลับไปหน้าเข้าสู่ระบบ...
           </div>
         )}
 
@@ -114,7 +116,7 @@ export default function RegisterPage() {
           {/* Company Name Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Company Name
+              ชื่อบริษัท
             </label>
             <input
               type="text"
@@ -123,14 +125,14 @@ export default function RegisterPage() {
               onChange={handleChange}
               required
               className="w-full px-4 py-2 bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all"
-              placeholder="e.g. Acme Corp"
+              placeholder="เช่น บริษัท เอบีซี จำกัด"
             />
           </div>
 
           {/* Email Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Work Email
+              อีเมล
             </label>
             <input
               type="email"
@@ -146,7 +148,7 @@ export default function RegisterPage() {
           {/* Password Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
+              รหัสผ่าน
             </label>
             <div className="relative">
               <input
@@ -172,7 +174,7 @@ export default function RegisterPage() {
           {/* Confirm Password Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Confirm Password
+              ยืนยันรหัสผ่าน
             </label>
             <div className="relative">
               <input
@@ -201,15 +203,15 @@ export default function RegisterPage() {
             disabled={isLoading}
             className="w-full mt-2 bg-black text-white font-medium py-2.5 rounded-lg hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {isLoading ? "Creating account..." : "Register"}
+            {isLoading ? "กำลังสร้างบัญชี..." : "ลงทะเบียน"}
           </button>
         </form>
 
         {/* Footer Link */}
         <p className="text-center text-sm text-gray-600 mt-8">
-          Already have an account?{" "}
+          มีบัญชีอยู่แล้วใช่หรือไม่?{" "}
           <a href="/login" className="text-black font-medium hover:underline">
-            Sign in
+            เข้าสู่ระบบ
           </a>
         </p>
 

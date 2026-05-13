@@ -14,7 +14,6 @@ type CreateUserRequest struct {
 	CompanyID uint   `json:"company_id"` // สำหรับตอนสร้าง assistant
 }
 
-// CreateSuperAdmin Controller (ดักให้เข้าได้เฉพาะ superadmin ใน route)
 func CreateSuperAdmin(c *fiber.Ctx) error {
 	req := new(CreateUserRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -44,14 +43,13 @@ func CreateSuperAdmin(c *fiber.Ctx) error {
 	})
 }
 
-// CreateAssistant Controller
+// 🌟 อัปเดต Error Switch Case
 func CreateAssistant(c *fiber.Ctx) error {
 	req := new(CreateUserRequest)
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request format"})
 	}
 
-	// ข้อควรระวังของ JWT: ตัวเลขใน JSON ที่ถูกแกะมามักจะเป็น float64 เสมอ เราต้องแปลงเป็น uint ก่อนใช้งาน
 	creatorIDFloat, _ := c.Locals("user_id").(float64)
 	creatorID := uint(creatorIDFloat)
 	creatorRole := c.Locals("role").(string)
@@ -69,8 +67,10 @@ func CreateAssistant(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Email already exists"})
 		case "company_id_required":
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Super Admin must provide company_id to assign the assistant"})
-		case "company_not_found":
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Company not found"})
+		case "admin_not_found_for_company": // 📌 ดัก Error ใหม่
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "This company has no Admin. Please assign an Admin first."})
+		case "admin_has_no_company": // 📌 ดัก Error ใหม่
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "You do not have a company assigned."})
 		default:
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -83,17 +83,16 @@ func CreateAssistant(c *fiber.Ctx) error {
 			"email":      user.Email,
 			"role":       user.Role,
 			"manager_id": user.ManagerID,
+			"company_id": user.CompanyID,
 		},
 	})
 }
 
-// สร้าง Struct ใหม่สำหรับ Admin (รับแค่ Email กับ Password พอ)
 type CreateAssistantByAdminRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-// CreateAssistantByAdmin - API สำหรับ Admin เพิ่ม Assistant
 func CreateAssistantByAdmin(c *fiber.Ctx) error {
 	req := new(CreateAssistantByAdminRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -104,29 +103,24 @@ func CreateAssistantByAdmin(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Email and password are required"})
 	}
 
-	// 1. ดึง user_id ของ Admin จาก Token (ที่ได้จาก Auth Middleware)
 	adminIDFloat, ok := c.Locals("user_id").(float64)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized or invalid token payload"})
 	}
 	adminID := uint(adminIDFloat)
 
-	// 2. ส่งไปให้ Service จัดการต่อ
 	user, err := services.CreateAssistantByAdmin(req.Email, req.Password, adminID)
 	if err != nil {
 		switch err.Error() {
 		case "email_exists":
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Email already exists"})
-		case "admin_not_found":
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found in database"})
-		case "not_an_admin":
-			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You cannot add an assistant because you are not an admin."})
+		case "not_an_admin": // 📌 ข้อความ Error เปลี่ยนไปเล็กน้อย
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You cannot add an assistant because you are not an admin or lack a company."})
 		default:
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
 		}
 	}
 
-	// 3. สร้างสำเร็จ คืนค่าข้อมูลกลับไป
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "Assistant created successfully",
 		"user": fiber.Map{
@@ -134,9 +128,12 @@ func CreateAssistantByAdmin(c *fiber.Ctx) error {
 			"email":      user.Email,
 			"role":       user.Role,
 			"manager_id": user.ManagerID,
+			"company_id": user.CompanyID,
 		},
 	})
 }
+
+// ... ส่วน Update / Change Password / Delete ยังเหมือนเดิมเป๊ะครับ ...
 
 // Struct สำหรับรับค่าการอัปเดตข้อมูลผู้ใช้
 type UpdateUserRequest struct {
@@ -261,5 +258,76 @@ func ChangePassword(c *fiber.Ctx) error {
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Password changed successfully",
+	})
+}
+
+// GetUsersByRole Controller - API สำหรับ Superadmin เรียกดู User (กรองด้วย query string `?role=...`)
+func GetUsersByRole(c *fiber.Ctx) error {
+	role := c.Query("role")
+
+	users, err := services.GetUsersByRole(role)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Users fetched successfully",
+		"users":   users,
+	})
+}
+
+// GetMyAssistants Controller - API สำหรับ Admin เรียกดู Assistant ของบริษัทตัวเอง
+func GetMyAssistants(c *fiber.Ctx) error {
+	adminIDFloat, ok := c.Locals("user_id").(float64)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	adminID := uint(adminIDFloat)
+
+	assistants, err := services.GetAssistantsByAdmin(adminID)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Assistants fetched successfully",
+		"users":   assistants,
+	})
+}
+
+// DeleteUser Controller - API สำหรับลบ User
+func DeleteUser(c *fiber.Ctx) error {
+	targetIDParam := c.Params("id")
+	targetID, err := strconv.ParseUint(targetIDParam, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+
+	deleterIDFloat, ok1 := c.Locals("user_id").(float64)
+	deleterRole, ok2 := c.Locals("role").(string)
+
+	if !ok1 || !ok2 {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	deleterID := uint(deleterIDFloat)
+
+	err = services.DeleteUser(deleterID, deleterRole, uint(targetID))
+	if err != nil {
+		switch err.Error() {
+		case "user_not_found":
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
+		case "cannot_delete_main_superadmin":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Cannot delete the main superadmin"})
+		case "unauthorized_delete_role", "unauthorized_manager":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You are not authorized to delete this user"})
+		case "unauthorized_role":
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Your role cannot delete users"})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Internal server error"})
+		}
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "User deleted successfully",
 	})
 }

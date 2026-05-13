@@ -32,7 +32,9 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:8000/api/auth/login", {
+      // 🌟 เรียกใช้ API URL จาก .env.local
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${baseUrl}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -43,7 +45,7 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Invalid email or password");
+        throw new Error(data.error || "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
       }
 
       // 1. เก็บ Token และข้อมูล User ลงใน Local Storage เพื่อเอาไปใช้ต่อในหน้าอื่นๆ
@@ -77,10 +79,10 @@ export default function LoginPage() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-            Welcome back
+            ยินดีต้อนรับกลับเข้าสู่ระบบ
           </h1>
           <p className="text-sm text-gray-500 mt-2">
-            Enter your credentials to access your account.
+            กรุณากรอกข้อมูลของคุณเพื่อเข้าสู่ระบบ
           </p>
         </div>
 
@@ -97,7 +99,7 @@ export default function LoginPage() {
           {/* Email Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
+              อีเมล
             </label>
             <input
               type="email"
@@ -114,10 +116,10 @@ export default function LoginPage() {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-sm font-medium text-gray-700">
-                Password
+                รหัสผ่าน
               </label>
               <a href="#" className="text-sm text-gray-500 hover:text-black transition-colors">
-                Forgot password?
+                ลืมรหัสผ่าน?
               </a>
             </div>
             <div className="relative">
@@ -146,15 +148,15 @@ export default function LoginPage() {
             disabled={isLoading}
             className="w-full mt-2 bg-black text-white font-medium py-2.5 rounded-lg hover:bg-gray-800 focus:ring-4 focus:ring-gray-200 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            {isLoading ? "Signing in..." : "Sign in"}
+            {isLoading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
           </button>
         </form>
 
         {/* Footer Link */}
         <p className="text-center text-sm text-gray-600 mt-8">
-          Don't have an account?{" "}
+          ยังไม่มีบัญชีใช่หรือไม่?{" "}
           <a href="/register" className="text-black font-medium hover:underline">
-            Register here
+            สมัครสมาชิกที่นี่
           </a>
         </p>
 

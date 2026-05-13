@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+
 	"saas-finance-backend/database"
 	"saas-finance-backend/models"
 )
@@ -17,9 +18,16 @@ func GetAllCategories() ([]models.Category, error) {
 
 // CreateCategory สร้างหมวดหมู่ใหม่
 func CreateCategory(name string, catType string) (*models.Category, error) {
+	// 🌟 2. เช็คว่ามีหมวดหมู่นี้ในระบบหรือยัง (ชื่อเดียวกันและประเภทเดียวกัน)
+	var count int64
+	database.DB.Model(&models.Category{}).Where("name = ? AND type = ?", name, catType).Count(&count)
+	if count > 0 {
+		return nil, errors.New("category_exists")
+	}
+
 	category := models.Category{
 		Name: name,
-		Type: catType, // เช่น "income" หรือ "expense"
+		Type: catType, // "income" หรือ "expense"
 	}
 
 	if err := database.DB.Create(&category).Error; err != nil {

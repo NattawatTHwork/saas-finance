@@ -45,6 +45,7 @@ type CreateAssistantInput struct {
 	CompanyID uint // อาจจะถูกส่งมาถ้าคนสร้างเป็น superadmin
 }
 
+// 🌟 CreateAssistant แก้ไขให้รองรับโครงสร้างใหม่
 func CreateAssistant(input CreateAssistantInput, creatorRole string, creatorID uint) (*models.User, error) {
 	// 1. เช็คอีเมลซ้ำ
 	var count int64
@@ -54,24 +55,31 @@ func CreateAssistant(input CreateAssistantInput, creatorRole string, creatorID u
 	}
 
 	var managerID uint
+	var companyID uint
 
-	// 2. จัดการ Manager ID ตามเงื่อนไขของคนสร้าง
+	// 2. จัดการ Manager ID และ Company ID ตาม Role
 	if creatorRole == "superadmin" {
-		// ถ้าเป็น superadmin สร้าง ต้องมี company_id ส่งมา
 		if input.CompanyID == 0 {
 			return nil, errors.New("company_id_required")
 		}
+		companyID = input.CompanyID
 
-		// หาว่าบริษัทนี้ใครเป็นเจ้าของ (admin)
-		var company models.Company
-		if err := database.DB.First(&company, input.CompanyID).Error; err != nil {
-			return nil, errors.New("company_not_found")
+		// 📌 หา Admin ที่เป็นเจ้าของบริษัทนี้ เพื่อเอา ID เขามาเป็น ManagerID
+		var admin models.User
+		if err := database.DB.Where("company_id = ? AND role = ?", companyID, "admin").First(&admin).Error; err != nil {
+			return nil, errors.New("admin_not_found_for_company")
 		}
+		managerID = admin.ID
 
-		managerID = company.UserID // เอา UserID ของเจ้าของบริษัทมาเป็น ManagerID
 	} else if creatorRole == "admin" {
-		// ถ้า admin สร้างเอง เอา ID ของตัวเองเป็น ManagerID ได้เลย
 		managerID = creatorID
+		
+		// 📌 หา CompanyID จากตัว Admin ที่ล็อกอินอยู่
+		var admin models.User
+		if err := database.DB.First(&admin, creatorID).Error; err != nil || admin.CompanyID == nil {
+			return nil, errors.New("admin_has_no_company")
+		}
+		companyID = *admin.CompanyID
 	} else {
 		return nil, errors.New("unauthorized_role")
 	}
@@ -86,7 +94,8 @@ func CreateAssistant(input CreateAssistantInput, creatorRole string, creatorID u
 		Email:        input.Email,
 		PasswordHash: string(hashedPassword),
 		Role:         "assistant",
-		ManagerID:    &managerID, // ใส่ Pointer ของ ManagerID
+		ManagerID:    &managerID,
+		CompanyID:    &companyID, // 🌟 ยัด CompanyID ให้ Assistant ด้วย
 		Status:       "active",
 	}
 
@@ -97,7 +106,7 @@ func CreateAssistant(input CreateAssistantInput, creatorRole string, creatorID u
 	return &newUser, nil
 }
 
-// CreateAssistantByAdmin - Service สำหรับสร้าง Assistant โดยหาบริษัทจากตาราง Company ด้วย adminID
+// 🌟 CreateAssistantByAdmin แก้ไขให้รองรับโครงสร้างใหม่
 func CreateAssistantByAdmin(email, password string, adminID uint) (*models.User, error) {
 	db := database.DB
 
@@ -107,10 +116,9 @@ func CreateAssistantByAdmin(email, password string, adminID uint) (*models.User,
 		return nil, errors.New("email_exists")
 	}
 
-	// 2. เอา adminID (user_id จาก token) ไปค้นหาในตาราง Company
-	var company models.Company
-	if err := db.Where("user_id = ?", adminID).First(&company).Error; err != nil {
-		// 📌 ถ้า Error แสดงว่าหาไม่เจอ = คนนี้ไม่ใช่ Admin (เพราะถ้าเป็น Admin ต้องมีบริษัทเสมอ)
+	// 2. เอา adminID ไปหาตัว Admin เพื่อดึง CompanyID
+	var admin models.User
+	if err := db.First(&admin, adminID).Error; err != nil || admin.CompanyID == nil {
 		return nil, errors.New("not_an_admin")
 	}
 
@@ -123,9 +131,11 @@ func CreateAssistantByAdmin(email, password string, adminID uint) (*models.User,
 	// 4. สร้างข้อมูล Assistant
 	assistant := models.User{
 		Email:        email,
-		PasswordHash: string(hashedPassword), // 📌 ใช้ PasswordHash ให้ตรงกับ Model ล่าสุด
+		PasswordHash: string(hashedPassword),
 		Role:         "assistant",
-		ManagerID:    &adminID, // 📌 เอา adminID มาเป็น Manager ให้ Assistant คนนี้
+		ManagerID:    &adminID,
+		CompanyID:    admin.CompanyID, // 🌟 ใส่ CompanyID ตาม Admin
+		Status:       "active",
 	}
 
 	// 5. บันทึกลง Database
@@ -136,14 +146,13 @@ func CreateAssistantByAdmin(email, password string, adminID uint) (*models.User,
 	return &assistant, nil
 }
 
-// UpdateUserBySuperAdmin - Service สำหรับ Superadmin แก้ไข Email และ Status ของใครก็ได้
+// UpdateUserBySuperAdmin
 func UpdateUserBySuperAdmin(userID uint, email, status string) (*models.User, error) {
 	var user models.User
 	if err := database.DB.First(&user, userID).Error; err != nil {
 		return nil, errors.New("user_not_found")
 	}
 
-	// เช็คว่าถ้ามีการเปลี่ยน Email จะซ้ำกับคนอื่นไหม
 	if email != "" && email != user.Email {
 		var count int64
 		database.DB.Model(&models.User{}).Where("email = ?", email).Count(&count)
@@ -164,19 +173,17 @@ func UpdateUserBySuperAdmin(userID uint, email, status string) (*models.User, er
 	return &user, nil
 }
 
-// UpdateAssistantByAdmin - Service สำหรับ Admin แก้ไข Assistant ของตัวเอง
+// UpdateAssistantByAdmin
 func UpdateAssistantByAdmin(adminID, assistantID uint, email, status string) (*models.User, error) {
 	var assistant models.User
 	if err := database.DB.First(&assistant, assistantID).Error; err != nil {
 		return nil, errors.New("user_not_found")
 	}
 
-	// ตรวจสอบสิทธิ์: Assistant คนนี้ต้องมี ManagerID ตรงกับ adminID
 	if assistant.ManagerID == nil || *assistant.ManagerID != adminID {
 		return nil, errors.New("unauthorized_manager")
 	}
 
-	// เช็ค Email ซ้ำ
 	if email != "" && email != assistant.Email {
 		var count int64
 		database.DB.Model(&models.User{}).Where("email = ?", email).Count(&count)
@@ -197,25 +204,71 @@ func UpdateAssistantByAdmin(adminID, assistantID uint, email, status string) (*m
 	return &assistant, nil
 }
 
-// ChangePassword - Service สำหรับเปลี่ยนรหัสผ่านของตนเอง
+// ChangePassword
 func ChangePassword(userID uint, oldPassword, newPassword string) error {
 	var user models.User
 	if err := database.DB.First(&user, userID).Error; err != nil {
 		return errors.New("user_not_found")
 	}
 
-	// 1. ตรวจสอบรหัสผ่านเดิม
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
 		return errors.New("invalid_old_password")
 	}
 
-	// 2. เข้ารหัสรหัสผ่านใหม่
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 10)
 	if err != nil {
 		return err
 	}
 
-	// 3. บันทึกรหัสผ่านใหม่
 	user.PasswordHash = string(hashedPassword)
 	return database.DB.Save(&user).Error
+}
+
+// GetUsersByRole
+func GetUsersByRole(role string) ([]models.User, error) {
+	var users []models.User
+	query := database.DB.Model(&models.User{})
+
+	if role != "" {
+		query = query.Where("role = ?", role)
+	}
+
+	if err := query.Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+// GetAssistantsByAdmin
+func GetAssistantsByAdmin(adminID uint) ([]models.User, error) {
+	var assistants []models.User
+	if err := database.DB.Where("role = ? AND manager_id = ?", "assistant", adminID).Find(&assistants).Error; err != nil {
+		return nil, err
+	}
+	return assistants, nil
+}
+
+// DeleteUser
+func DeleteUser(deleterID uint, deleterRole string, targetID uint) error {
+	var target models.User
+	if err := database.DB.First(&target, targetID).Error; err != nil {
+		return errors.New("user_not_found")
+	}
+
+	if deleterRole == "superadmin" {
+		if target.Email == "superadmin@financesaas.com" {
+			return errors.New("cannot_delete_main_superadmin")
+		}
+	} else if deleterRole == "admin" {
+		if target.Role != "assistant" {
+			return errors.New("unauthorized_delete_role")
+		}
+		if target.ManagerID == nil || *target.ManagerID != deleterID {
+			return errors.New("unauthorized_manager")
+		}
+	} else {
+		return errors.New("unauthorized_role")
+	}
+
+	return database.DB.Delete(&target).Error
 }

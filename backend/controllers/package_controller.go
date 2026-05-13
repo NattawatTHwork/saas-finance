@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"saas-finance-backend/models"
 	"saas-finance-backend/services"
 )
 
@@ -37,6 +38,8 @@ func SubscribePackage(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Package not found"})
 		case "trial_already_used":
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "You have already used the free trial"})
+		case "you_already_have_an_active_subscription": // 🌟 ดัก Error ซื้อซ้ำ
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "You already have an active subscription"})
 		default:
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to subscribe package"})
 		}
@@ -74,4 +77,63 @@ func CancelPackage(c *fiber.Ctx) error {
 		"message":     "Package cancelled successfully",
 		"transaction": transaction,
 	})
+}
+
+// GetAllPackages - API สำหรับดึงรายการแพ็คเกจทั้งหมด (Public)
+func GetAllPackages(c *fiber.Ctx) error {
+	packages, err := services.GetAllPackages()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch packages",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(packages)
+}
+
+// GetAllPackagesAdmin
+func GetAllPackagesAdmin(c *fiber.Ctx) error {
+	packages, err := services.GetAllPackagesAdmin()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.Status(200).JSON(packages)
+}
+
+// CreatePackage
+func CreatePackage(c *fiber.Ctx) error {
+	var pkg models.Package
+	if err := c.BodyParser(&pkg); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid input"})
+	}
+
+	newPkg, err := services.CreatePackage(pkg)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.Status(201).JSON(newPkg)
+}
+
+// UpdatePackage
+func UpdatePackage(c *fiber.Ctx) error {
+	id, _ := strconv.Atoi(c.Params("id"))
+	var pkg models.Package
+	if err := c.BodyParser(&pkg); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid input"})
+	}
+
+	updatedPkg, err := services.UpdatePackage(uint(id), pkg)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.Status(200).JSON(updatedPkg)
+}
+
+// DeletePackage
+func DeletePackage(c *fiber.Ctx) error {
+	id, _ := strconv.Atoi(c.Params("id"))
+	if err := services.DeletePackage(uint(id)); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.Status(200).JSON(fiber.Map{"message": "Package deleted"})
 }

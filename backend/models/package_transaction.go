@@ -1,8 +1,8 @@
 package models
 
 import (
-	"time"
 	"gorm.io/gorm"
+	"time"
 )
 
 type PackageTransaction struct {
@@ -16,7 +16,7 @@ type PackageTransaction struct {
 	Discount        float64        `gorm:"type:numeric(10,2);default:0" json:"discount"`
 	PriceNet        float64        `gorm:"type:numeric(10,2);not null" json:"price_net"`
 	Status          string         `gorm:"type:varchar(50);default:'active'" json:"status"`
-	ExpiredAt       time.Time      `gorm:"not null" json:"expired_at"` // 📌 เพิ่มฟิลด์ วันหมดอายุ
+	ExpiredAt       time.Time      `gorm:"not null;default:CURRENT_TIMESTAMP"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
 	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`

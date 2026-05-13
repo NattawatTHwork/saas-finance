@@ -2,14 +2,14 @@ package services
 
 import (
 	"errors"
-	"time"
 	"os"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
 	"saas-finance-backend/database"
 	"saas-finance-backend/models"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 // ข้อมูลที่ Service ต้องการเพื่อใช้สมัครสมาชิก
@@ -25,13 +25,13 @@ type RegisterOutput struct {
 	Company models.Company
 }
 
-// RegisterAdmin ทำหน้าที่จัดการ Business logic สำหรับการสมัครสมาชิกของเจ้าของบริษัท
+// 🌟 RegisterAdmin ทำหน้าที่จัดการ Business logic สำหรับการสมัครสมาชิก
 func RegisterAdmin(input RegisterInput) (*RegisterOutput, error) {
 	// 1. ตรวจสอบว่า Email นี้มีในระบบหรือยัง
 	var count int64
 	database.DB.Model(&models.User{}).Where("email = ?", input.Email).Count(&count)
 	if count > 0 {
-		return nil, errors.New("email_exists") // คืนค่า error เฉพาะเจาะจงเพื่อให้ Controller จัดการต่อ
+		return nil, errors.New("email_exists")
 	}
 
 	// 2. เข้ารหัสรหัสผ่าน (Hash Password)
@@ -43,27 +43,27 @@ func RegisterAdmin(input RegisterInput) (*RegisterOutput, error) {
 	// 3. เริ่ม Database Transaction
 	tx := database.DB.Begin()
 
-	// สร้าง User (ยัดสิทธิ์ "admin")
+	// 🌟 สลับลำดับ: สร้าง Company ก่อน เพราะ User ต้องใช้ CompanyID
+	newCompany := models.Company{
+		CompanyName: input.CompanyName,
+		Status:      "active",
+	}
+
+	if err := tx.Create(&newCompany).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	// 🌟 สร้าง User และเอา ID ของ Company ที่เพิ่งสร้างเสร็จมาใส่
 	newUser := models.User{
 		Email:        input.Email,
 		PasswordHash: string(hashedPassword),
 		Role:         "admin",
 		Status:       "active",
+		CompanyID:    &newCompany.ID, // 📌 ใส่ CompanyID ให้ตรงกับบริษัทที่เพิ่งสร้าง
 	}
 
 	if err := tx.Create(&newUser).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	// สร้าง Company โดยเชื่อมกับ UserID
-	newCompany := models.Company{
-		CompanyName: input.CompanyName,
-		UserID:      newUser.ID,
-		Status:      "active",
-	}
-
-	if err := tx.Create(&newCompany).Error; err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -95,7 +95,6 @@ func Login(input LoginInput) (*LoginOutput, error) {
 	var user models.User
 
 	// 1. ค้นหา User จาก Email
-	// ใช้ Preload("Company") ถ้าต้องการดึงข้อมูลบริษัทมาด้วย (แต่ถ้า User คนนั้นเป็น Superadmin จะไม่มีบริษัท)
 	if err := database.DB.Where("email = ?", input.Email).First(&user).Error; err != nil {
 		return nil, errors.New("invalid_credentials") // ไม่พบอีเมล
 	}
@@ -112,7 +111,6 @@ func Login(input LoginInput) (*LoginOutput, error) {
 	}
 
 	// 4. สร้าง JWT Token
-	// กำหนด Payload (Claims) ที่จะฝังไว้ใน Token
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"role":    user.Role,
